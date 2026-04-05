@@ -32,27 +32,27 @@ if "lon" not in st.session_state: st.session_state.lon = 80.044
 
 # --- FUNCTIONS ---
 def summarize_text(text):
-    # If the text is too short (like only 1 headline), we don't need a heavy summary
+    # If the text is too short, wrap it professionally
     if len(text.split()) < 20:
-        return f"Recent reports indicate: {text.strip()} For a detailed analysis of this development, please refer to the source links below."
+        return f"Recent reports indicate: {text.strip()} For more detailed context, please refer to the source links below."
 
     inputs = tokenizer(text, return_tensors="pt", truncation=True, max_length=1024).to(device)
     
-    # We adjust temperature and top_k to make the AI more "creative" and less repetitive
     summary_ids = model.generate(
         inputs["input_ids"], 
         max_new_tokens=100, 
         num_beams=4, 
-        do_sample=True, # Enables creative generation
-        temperature=0.8, # Prevents exact copying
+        do_sample=True, 
+        temperature=0.8, 
         top_k=50, 
         early_stopping=True
     )
     
-    summary = tokenizer.decode(summary_ids, skip_special_tokens=True)
+    # 1. Decode to get the text
+    decoded_summary = tokenizer.decode(summary_ids, skip_special_tokens=True)
     
-    # --- CLEANUP: Remove slashes, brackets, and extra quotes ---
-    clean_summary = summary.replace('\\', '').replace('[', '').replace(']', '').replace('"', '').replace("'", "")
+    # 2. Force it to be a string and then clean it
+    clean_summary = str(decoded_summary).replace('\\', '').replace('[', '').replace(']', '').replace('"', '').replace("'", "")
     
     return clean_summary
 
