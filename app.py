@@ -32,24 +32,31 @@ if "lon" not in st.session_state: st.session_state.lon = 80.044
 
 # --- FUNCTIONS ---
 def summarize_text(text):
-    if len(text.split()) < 15:
-        return f"Current regional analysis suggests: {text.strip()}"
+    # If the input is too short, we manually format it to look like a summary
+    if len(text.split()) < 30:
+        return f"Regional reports highlight several key developments, including {text.strip()} For a deeper dive into these environmental updates, please explore the full articles linked below."
 
     inputs = tokenizer(text, return_tensors="pt", truncation=True, max_length=1024).to(device)
     
     summary_ids = model.generate(
         inputs["input_ids"], 
-        max_new_tokens=80, 
-        num_beams=5, 
+        max_new_tokens=150, 
+        min_length=40,       # Forces a minimum summary length
+        num_beams=6, 
         do_sample=True, 
-        temperature=1.3,  # Increased for more "creative" rephrasing
-        top_p=0.9,        # Focuses on the most likely creative words
-        repetition_penalty=2.5, # Strictly forbids repeating the same words
+        temperature=1.4,      # Higher temperature for distinct phrasing
+        top_p=0.95,
+        repetition_penalty=3.5, # High penalty to stop it from copying exact words
+        length_penalty=1.5,   # Encourages longer, more descriptive sentences
         early_stopping=True
     )
     
     decoded_summary = tokenizer.decode(summary_ids, skip_special_tokens=True)
-    return str(decoded_summary).replace('\\', '').strip()
+    
+    # Final cleanup to remove any lingering brackets or strange symbols
+    clean_summary = str(decoded_summary).replace('\\', '').replace('[', '').replace(']', '').replace("'", "").replace('"', "").strip()
+    
+    return clean_summary
 
 from gnews import GNews
 
