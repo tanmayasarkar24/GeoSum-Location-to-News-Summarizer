@@ -1,0 +1,8 @@
+streamlit
+streamlit-folium
+folium
+geopy
+requests
+beautifulsoup4
+torch
+transformers
