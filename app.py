@@ -37,30 +37,29 @@ def summarize_text(text):
     summary_ids = model.generate(inputs["input_ids"], max_new_tokens=200, num_beams=4, early_stopping=True)
     return tokenizer.decode(summary_ids, skip_special_tokens=True)
 
+from gnews import GNews
+
 def fetch_news(loc_name, target_date):
-    date_str = target_date.strftime('%Y-%m-%d')
-    next_day = (target_date + timedelta(days=1)).strftime('%Y-%m-%d')
-    query = f"{loc_name} environmental climate news after:{date_str} before:{next_day}"
-    url = f"https://news.google.com/rss/search?q={query.replace(' ', '%20')}&hl=en-IN&gl=IN&ceid=IN:en"
-
+    # Initialize GNews with specific settings
+    google_news = GNews(language='en', country='IN', period='7d', max_results=4)
+    
+    # Create the search query
+    query = f"{loc_name} environmental climate news"
+    
     try:
-        # UPDATED LINE BELOW: Added headers=HEADERS
-        response = requests.get(url, headers=HEADERS, timeout=10) 
-        soup = BeautifulSoup(response.content, 'xml')
+        # GNews handles the heavy lifting of fetching and parsing
+        results = google_news.get_news(query)
         articles = []
-        for item in soup.find_all('item', limit=4):
-            full_title = str(item.title.text)
-
-            title_part = full_title.rsplit(" - ", 1) if " - " in full_title else full_title
-            source_part = full_title.rsplit(" - ", 1)[-1] if " - " in full_title else "News"
-
+        
+        for item in results:
             articles.append({
-                'title': str(title_part).strip(),
-                'source': str(source_part).strip(),
-                'link': item.link.text
+                'title': item['title'].rsplit(" - ", 1),
+                'source': item['publisher']['title'],
+                'link': item['url']
             })
         return articles
-    except: 
+    except Exception as e:
+        print(f"Error fetching news: {e}")
         return []
 
 # --- UI ---
