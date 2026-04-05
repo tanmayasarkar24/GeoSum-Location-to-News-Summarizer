@@ -32,29 +32,24 @@ if "lon" not in st.session_state: st.session_state.lon = 80.044
 
 # --- FUNCTIONS ---
 def summarize_text(text):
-    # If the text is too short, wrap it professionally
-    if len(text.split()) < 20:
-        return f"Recent reports indicate: {text.strip()} For more detailed context, please refer to the source links below."
+    if len(text.split()) < 15:
+        return f"Current regional analysis suggests: {text.strip()}"
 
     inputs = tokenizer(text, return_tensors="pt", truncation=True, max_length=1024).to(device)
     
     summary_ids = model.generate(
         inputs["input_ids"], 
-        max_new_tokens=100, 
-        num_beams=4, 
+        max_new_tokens=80, 
+        num_beams=5, 
         do_sample=True, 
-        temperature=0.8, 
-        top_k=50, 
+        temperature=1.3,  # Increased for more "creative" rephrasing
+        top_p=0.9,        # Focuses on the most likely creative words
+        repetition_penalty=2.5, # Strictly forbids repeating the same words
         early_stopping=True
     )
     
-    # 1. Decode to get the text
     decoded_summary = tokenizer.decode(summary_ids, skip_special_tokens=True)
-    
-    # 2. Force it to be a string and then clean it
-    clean_summary = str(decoded_summary).replace('\\', '').replace('[', '').replace(']', '').replace('"', '').replace("'", "")
-    
-    return clean_summary
+    return str(decoded_summary).replace('\\', '').strip()
 
 from gnews import GNews
 
