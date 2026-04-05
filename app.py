@@ -32,31 +32,37 @@ if "lon" not in st.session_state: st.session_state.lon = 80.044
 
 # --- FUNCTIONS ---
 def summarize_text(text):
-    # If the input is too short, we manually format it to look like a summary
-    if len(text.split()) < 30:
-        return f"Regional reports highlight several key developments, including {text.strip()} For a deeper dive into these environmental updates, please explore the full articles linked below."
-
-    inputs = tokenizer(text, return_tensors="pt", truncation=True, max_length=1024).to(device)
+    # 1. PERSONA INJECTION: We wrap the headlines in a command
+    # This forces BART to 'react' to the text rather than just copy it.
+    prompt = f"Provide a cohesive, professional summary of these regional environmental developments: {text}"
     
+    inputs = tokenizer(prompt, return_tensors="pt", truncation=True, max_length=1024).to(device)
+    
+    # 2. HYPER-PARAMETER TUNING
     summary_ids = model.generate(
         inputs["input_ids"], 
-        max_new_tokens=150, 
-        min_length=40,       # Forces a minimum summary length
-        num_beams=6, 
+        max_new_tokens=100, 
+        min_length=30,
+        num_beams=8,               # Higher beams for better sentence structure
         do_sample=True, 
-        temperature=1.4,      # Higher temperature for distinct phrasing
-        top_p=0.95,
-        repetition_penalty=3.5, # High penalty to stop it from copying exact words
-        length_penalty=1.5,   # Encourages longer, more descriptive sentences
+        temperature=1.5,           # High temperature for maximum rephrasing
+        top_k=50,
+        top_p=0.9,
+        repetition_penalty=5.0,    # MAXIMUM penalty to stop it from copying exact words
+        no_repeat_ngram_size=3,    # Forbids repeating any 3-word sequence
         early_stopping=True
     )
     
     decoded_summary = tokenizer.decode(summary_ids, skip_special_tokens=True)
     
-    # Final cleanup to remove any lingering brackets or strange symbols
-    clean_summary = str(decoded_summary).replace('\\', '').replace('[', '').replace(']', '').replace("'", "").replace('"', "").strip()
+    # 3. CLEANING
+    clean_summary = str(decoded_summary).replace('\\', '').strip()
     
-    return clean_summary
+    # Final check: If it still looks too much like a list, we add a manual lead-in
+    if clean_summary.startswith(("The", "This", "Regional")):
+        return clean_summary
+    else:
+        return f"Analysis of recent regional environmental reports indicates that {clean_summary}"
 
 from gnews import GNews
 
