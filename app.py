@@ -32,10 +32,29 @@ if "lon" not in st.session_state: st.session_state.lon = 80.044
 
 # --- FUNCTIONS ---
 def summarize_text(text):
+    # If the text is too short (like only 1 headline), we don't need a heavy summary
+    if len(text.split()) < 20:
+        return f"Recent reports indicate: {text.strip()} For a detailed analysis of this development, please refer to the source links below."
+
     inputs = tokenizer(text, return_tensors="pt", truncation=True, max_length=1024).to(device)
-    # Increased max_new_tokens to ensure all news items are captured in summary
-    summary_ids = model.generate(inputs["input_ids"], max_new_tokens=200, num_beams=4, early_stopping=True)
-    return tokenizer.decode(summary_ids, skip_special_tokens=True)
+    
+    # We adjust temperature and top_k to make the AI more "creative" and less repetitive
+    summary_ids = model.generate(
+        inputs["input_ids"], 
+        max_new_tokens=100, 
+        num_beams=4, 
+        do_sample=True, # Enables creative generation
+        temperature=0.8, # Prevents exact copying
+        top_k=50, 
+        early_stopping=True
+    )
+    
+    summary = tokenizer.decode(summary_ids, skip_special_tokens=True)
+    
+    # --- CLEANUP: Remove slashes, brackets, and extra quotes ---
+    clean_summary = summary.replace('\\', '').replace('[', '').replace(']', '').replace('"', '').replace("'", "")
+    
+    return clean_summary
 
 from gnews import GNews
 
@@ -93,17 +112,24 @@ with col_loc:
 
                 summary = summarize_text(headlines)
 
-                # Final cleanup of any potential artifacts
-                final_summary = str(summary).replace("[", "").replace("]", "").replace("'", "").replace('"', "")
+                # --- NEW CLEANUP LOGIC ---
+                # This removes those slashes (\) and ensures it stays a clean string
+                final_summary = str(summary).replace('\\', '').replace("[", "").replace("]", "").replace("'", "").replace('"', "")
 
                 st.success(f"Report for: {loc_name} ({selected_date})")
-                st.info(f"**Summarized environmental news:** {final_summary}")
+                
+                # --- NEW LOGIC FOR SINGLE NEWS OR REPETITION ---
+                if len(news) == 1:
+                    st.info(f"**AI Insight:** Recent reports from the region indicate: {final_summary} For more detailed context, please refer to the source link below.")
+                else:
+                    st.info(f"**AI Insight:** {final_summary}")
+                
+                st.caption("Click the headlines below to visit the official news pages for more information.")
 
                 for n in news:
                     st.markdown(f"- [{n['title']}]({n['link']}) *({n['source']})*")
             else:
                 st.warning(f"No news found for this area on {selected_date}.")
-
 with col_map:
     st.write("### Choose Your Location")
     m = folium.Map(location=[st.session_state.lat, st.session_state.lon], zoom_start=6)
