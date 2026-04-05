@@ -13,6 +13,9 @@ from datetime import datetime, timedelta
 st.set_page_config(page_title="GeoSum", layout="wide")
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
+# Add this line here to "trick" Google into thinking you are a browser
+HEADERS = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'}
+
 @st.cache_resource
 def load_nlp_model():
     model_name = "facebook/bart-large-cnn"
@@ -41,23 +44,24 @@ def fetch_news(loc_name, target_date):
     url = f"https://news.google.com/rss/search?q={query.replace(' ', '%20')}&hl=en-IN&gl=IN&ceid=IN:en"
 
     try:
-        response = requests.get(url, timeout=5)
+        # UPDATED LINE BELOW: Added headers=HEADERS
+        response = requests.get(url, headers=HEADERS, timeout=10) 
         soup = BeautifulSoup(response.content, 'xml')
         articles = []
         for item in soup.find_all('item', limit=4):
             full_title = str(item.title.text)
 
-            # --- CRITICAL FIX: Add here to get the STRING, not a LIST ---
             title_part = full_title.rsplit(" - ", 1) if " - " in full_title else full_title
             source_part = full_title.rsplit(" - ", 1)[-1] if " - " in full_title else "News"
 
             articles.append({
-                'title': str(title_part).strip(), # Forces it to stay a clean string
+                'title': str(title_part).strip(),
                 'source': str(source_part).strip(),
                 'link': item.link.text
             })
         return articles
-    except: return []
+    except: 
+        return []
 
 # --- UI ---
 st.title("🌍 GeoSum: Location-to-News Summarizer")
