@@ -26,10 +26,17 @@ tokenizer, model = load_nlp_model()
 
 # --- GEOLOCATOR SETUP ---
 # Updated with a unique user_agent and a timeout to prevent connection errors
+from geopy.extra.rate_limiter import RateLimiter # Add this import at the top
+
+# --- GEOLOCATOR SETUP ---
 geolocator = Nominatim(
-    user_agent="geosum_environmental_summarizer_v2", 
+    user_agent="tanmaya_sarkar_geosum_final_v3", # Change the name again to 'reset' your ID
     timeout=10
 )
+
+# Add this line to create a 'patient' version of the geolocator
+reverse_gate = RateLimiter(geolocator.reverse, min_delay_seconds=1.1)
+geocode_gate = RateLimiter(geolocator.geocode, min_delay_seconds=1.1)
 
 # --- SESSION STATE ---
 if "lat" not in st.session_state: st.session_state.lat = 12.823
@@ -106,7 +113,7 @@ with col_loc:
     st.subheader("Select Parameters")
     search = st.text_input("🔍 Search Region", value="Tamil Nadu")
     if st.button("Update Region"):
-        loc = geolocator.geocode(search)
+        loc = geocode_gate(search)
         if loc:
             st.session_state.lat, st.session_state.lon = loc.latitude, loc.longitude
             st.rerun()
@@ -118,7 +125,7 @@ with col_loc:
 
     if st.button("🚀 Generate AI Report", use_container_width=True):
         with st.spinner(f"Searching archives for {selected_date}..."):
-            location = geolocator.reverse(f"{st.session_state.lat}, {st.session_state.lon}", language='en')
+            location = reverse_gate(f"{st.session_state.lat}, {st.session_state.lon}", language='en')
             loc_name = location.raw.get('address', {}).get('state', search) if location else search
 
             news = fetch_news(loc_name, selected_date)
