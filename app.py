@@ -32,27 +32,35 @@ if "lon" not in st.session_state: st.session_state.lon = 80.044
 # --- FUNCTIONS ---
 
 def summarize_text(text):
-    instruction = "Provide a cohesive, professional summary of these regional environmental developments:"
-    clean_input = str(text).replace("[", "").replace("]", "").replace("'", "")
+    # 1. ENHANCED PROMPT: Explicitly asking for rephrasing, not listing.
+    instruction = "Summarize the following news headlines into a single, cohesive paragraph. Do not list them or copy them word-for-word:"
+    
+    # Pre-cleaning the input to remove any code-like artifacts before the AI sees it
+    clean_input = str(text).replace("[", "").replace("]", "").replace("'", "").replace("\\", "")
     prompt = f"{instruction} {clean_input}"
     
     inputs = tokenizer(prompt, return_tensors="pt", truncation=True, max_length=1024).to(device)
     
+    # 2. GENERATION PARAMETERS: Tuning for Abstractive (creative) summary
     summary_ids = model.generate(
         inputs["input_ids"], 
-        max_new_tokens=100, 
-        min_length=35,
-        num_beams=10,               
+        max_new_tokens=120, 
+        min_length=40,
+        num_beams=12,               # More beams for better sentence searching
         do_sample=True, 
-        temperature=1.3,           
-        repetition_penalty=10.0,    
-        no_repeat_ngram_size=3,    
+        temperature=1.2,           # Balanced creativity
+        repetition_penalty=15.0,    # EXTREME penalty to stop it from copying titles
+        no_repeat_ngram_size=3,     # Forbids repeating any 3-word sequence from the input
         early_stopping=True
     )
     
     decoded_summary = str(tokenizer.decode(summary_ids, skip_special_tokens=True))
+    
+    # 3. POST-PROCESSING: Removing the instruction if it leaked
     clean_summary = re.sub(re.escape(instruction), '', decoded_summary, flags=re.IGNORECASE).strip()
-    clean_summary = clean_summary.replace('\\', '').replace('"', '').strip()
+    
+    # Extra cleanup for those backslashes seen in the UI
+    clean_summary = clean_summary.replace('\\', '').replace('"', '').replace("Summarized environmental news:", "").strip()
     
     if clean_summary.lower().startswith("analysis"):
         return clean_summary
@@ -60,27 +68,19 @@ def summarize_text(text):
         return f"Analysis of recent regional environmental reports indicates that {clean_summary}"
 
 def fetch_news(loc_name, target_date):
-    # 1. SETUP DATE RANGE: GNews works best with a start and end date
-    # We look for news from the target date and the day before it
-    start_date = target_date - timedelta(days=1)
-    
-    # 2. INITIALIZE GNEWS WITHOUT A FIXED PERIOD
-    # Setting period=None allows the start_date and end_date to take effect
+    start_date = target_date - timedelta(days=2) # Slightly wider window for better results
     google_news = GNews(language='en', country='IN', max_results=4)
     google_news.start_date = (start_date.year, start_date.month, start_date.day)
     google_news.end_date = (target_date.year, target_date.month, target_date.day)
     
-    # 3. SPECIFIC QUERY
     query = f"{loc_name} environmental climate"
     
     try:
         results = google_news.get_news(query)
         articles = []
-        
         for item in results:
             full_title = item.get('title', 'News')
             display_title = full_title.rsplit(" - ", 1) if " - " in full_title else full_title
-            
             articles.append({
                 'title': display_title,
                 'source': item['publisher']['title'],
@@ -88,7 +88,6 @@ def fetch_news(loc_name, target_date):
             })
         return articles
     except Exception as e:
-        st.error(f"Error fetching news: {e}")
         return []
 
 # --- UI ---
@@ -105,13 +104,11 @@ with col_loc:
             st.session_state.lat, st.session_state.lon = loc.latitude, loc.longitude
             st.rerun()
 
-    # The date selected here now correctly filters the news
     selected_date = st.date_input("📅 Select Date for News", datetime.now())
-
     st.markdown("---")
 
     if st.button("🚀 Generate AI Report", use_container_width=True):
-        with st.spinner(f"Searching archives for {selected_date}..."):
+        with st.spinner(f"Synthesizing environmental intelligence..."):
             location = geolocator.reverse(f"{st.session_state.lat}, {st.session_state.lon}", language='en')
             loc_name = location.raw.get('address', {}).get('state', search) if location else search
 
@@ -120,16 +117,17 @@ with col_loc:
             if news:
                 headlines_text = " ".join([f"{n['title']}." for n in news])
                 summary = summarize_text(headlines_text)
-                final_summary = str(summary).replace("[", "").replace("]", "").replace("'", "").replace('"', "")
 
-                st.success(f"Report for: {loc_name} (Results up to {selected_date})")
-                st.info(f"**AI Insight:** {final_summary}")
+                st.success(f"Report for: {loc_name} (Updated to {selected_date})")
                 
-                st.caption("Sources utilized for this analysis:")
+                # Using the AI Insight label you requested
+                st.info(f"**AI Insight:** {summary}")
+                
+                st.caption("Sources utilized for this intelligence report:")
                 for n in news:
                     st.markdown(f"- [{n['title']}]({n['link']}) *({n['source']})*")
             else:
-                st.warning(f"No specific environmental news found for {loc_name} on {selected_date}. Try an earlier date.")
+                st.warning(f"No specific environmental reports found for {loc_name} around {selected_date}.")
 
 with col_map:
     st.write("### Choose Your Location")
