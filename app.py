@@ -15,9 +15,6 @@ from gnews import GNews
 st.set_page_config(page_title="GeoSum", layout="wide")
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
-# Add this line here to "trick" Google into thinking you are a browser
-HEADERS = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'}
-
 @st.cache_resource
 def load_nlp_model():
     model_name = "facebook/bart-large-cnn"
@@ -35,16 +32,12 @@ if "lon" not in st.session_state: st.session_state.lon = 80.044
 # --- FUNCTIONS ---
 
 def summarize_text(text):
-    # 1. We define the instruction clearly
     instruction = "Provide a cohesive, professional summary of these regional environmental developments:"
-    
-    # Ensure input is a clean string (removes potential list brackets from headlines)
     clean_input = str(text).replace("[", "").replace("]", "").replace("'", "")
     prompt = f"{instruction} {clean_input}"
     
     inputs = tokenizer(prompt, return_tensors="pt", truncation=True, max_length=1024).to(device)
     
-    # 2. TUNING FOR MAXIMUM REPHRASING (Abstractive Summarization)
     summary_ids = model.generate(
         inputs["input_ids"], 
         max_new_tokens=100, 
@@ -52,39 +45,39 @@ def summarize_text(text):
         num_beams=10,               
         do_sample=True, 
         temperature=1.3,           
-        repetition_penalty=10.0,    # Prevents model from copying headlines exactly
-        no_repeat_ngram_size=3,    # Ensures new sentence structures
+        repetition_penalty=10.0,    
+        no_repeat_ngram_size=3,    
         early_stopping=True
     )
     
-    # Force string conversion to prevent TypeErrors
     decoded_summary = str(tokenizer.decode(summary_ids, skip_special_tokens=True))
-    
-    # 3. THE GHOST CLEANER: Removes the instruction from the final output
     clean_summary = re.sub(re.escape(instruction), '', decoded_summary, flags=re.IGNORECASE).strip()
-    
-    # 4. Remove any lingering slashes or artifacts
     clean_summary = clean_summary.replace('\\', '').replace('"', '').strip()
     
-    # 5. Final Professional Polish
     if clean_summary.lower().startswith("analysis"):
         return clean_summary
     else:
         return f"Analysis of recent regional environmental reports indicates that {clean_summary}"
 
 def fetch_news(loc_name, target_date):
-    # Initialize GNews with specific settings
-    google_news = GNews(language='en', country='IN', period='7d', max_results=4)
+    # 1. SETUP DATE RANGE: GNews works best with a start and end date
+    # We look for news from the target date and the day before it
+    start_date = target_date - timedelta(days=1)
     
-    # Create the search query
-    query = f"{loc_name} environmental climate news"
+    # 2. INITIALIZE GNEWS WITHOUT A FIXED PERIOD
+    # Setting period=None allows the start_date and end_date to take effect
+    google_news = GNews(language='en', country='IN', max_results=4)
+    google_news.start_date = (start_date.year, start_date.month, start_date.day)
+    google_news.end_date = (target_date.year, target_date.month, target_date.day)
+    
+    # 3. SPECIFIC QUERY
+    query = f"{loc_name} environmental climate"
     
     try:
         results = google_news.get_news(query)
         articles = []
         
         for item in results:
-            # FIX: Get the first part of the title as a STRING, not a list
             full_title = item.get('title', 'News')
             display_title = full_title.rsplit(" - ", 1) if " - " in full_title else full_title
             
@@ -95,7 +88,7 @@ def fetch_news(loc_name, target_date):
             })
         return articles
     except Exception as e:
-        print(f"Error fetching news: {e}")
+        st.error(f"Error fetching news: {e}")
         return []
 
 # --- UI ---
@@ -112,39 +105,31 @@ with col_loc:
             st.session_state.lat, st.session_state.lon = loc.latitude, loc.longitude
             st.rerun()
 
+    # The date selected here now correctly filters the news
     selected_date = st.date_input("📅 Select Date for News", datetime.now())
 
     st.markdown("---")
 
     if st.button("🚀 Generate AI Report", use_container_width=True):
-        with st.spinner(f"Analyzing news..."):
+        with st.spinner(f"Searching archives for {selected_date}..."):
             location = geolocator.reverse(f"{st.session_state.lat}, {st.session_state.lon}", language='en')
             loc_name = location.raw.get('address', {}).get('state', search) if location else search
 
             news = fetch_news(loc_name, selected_date)
 
             if news:
-                # Create a clean string of headlines for the AI
                 headlines_text = " ".join([f"{n['title']}." for n in news])
-
                 summary = summarize_text(headlines_text)
-
-                # Final UI cleanup
                 final_summary = str(summary).replace("[", "").replace("]", "").replace("'", "").replace('"', "")
 
-                st.success(f"Report for: {loc_name} ({selected_date})")
+                st.success(f"Report for: {loc_name} (Results up to {selected_date})")
+                st.info(f"**AI Insight:** {final_summary}")
                 
-                if len(news) == 1:
-                    st.info(f"**AI Insight:** {final_summary}")
-                else:
-                    st.info(f"**AI Insight:** {final_summary}")
-                
-                st.caption("Click the headlines below to visit the official news pages for more information.")
-
+                st.caption("Sources utilized for this analysis:")
                 for n in news:
                     st.markdown(f"- [{n['title']}]({n['link']}) *({n['source']})*")
             else:
-                st.warning(f"No news found for this area on {selected_date}.")
+                st.warning(f"No specific environmental news found for {loc_name} on {selected_date}. Try an earlier date.")
 
 with col_map:
     st.write("### Choose Your Location")
