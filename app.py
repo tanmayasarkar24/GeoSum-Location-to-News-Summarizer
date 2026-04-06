@@ -34,7 +34,8 @@ if "lon" not in st.session_state: st.session_state.lon = 80.044
 def summarize_text(text):
     # 1. PERSONA INJECTION: We wrap the headlines in a command
     # This forces BART to 'react' to the text rather than just copy it.
-    prompt = f"Provide a cohesive, professional summary of these regional environmental developments: {text}"
+    instruction_phrase = "Provide a cohesive, professional summary of these regional environmental developments:"
+    prompt = f"{instruction_phrase} {text}"
     
     inputs = tokenizer(prompt, return_tensors="pt", truncation=True, max_length=1024).to(device)
     
@@ -55,11 +56,15 @@ def summarize_text(text):
     
     decoded_summary = tokenizer.decode(summary_ids, skip_special_tokens=True)
     
-    # 3. CLEANING
+    # 3. CLEANING & POST-PROCESSING
+    # Force string conversion and remove slashes
     clean_summary = str(decoded_summary).replace('\\', '').strip()
     
+    # CRITICAL: Remove the instruction phrase if the AI repeated it in the output
+    clean_summary = clean_summary.replace(instruction_phrase, "").strip()
+    
     # Final check: If it still looks too much like a list, we add a manual lead-in
-    if clean_summary.startswith(("The", "This", "Regional")):
+    if any(clean_summary.lower().startswith(word) for word in ["the", "this", "regional", "analysis"]):
         return clean_summary
     else:
         return f"Analysis of recent regional environmental reports indicates that {clean_summary}"
