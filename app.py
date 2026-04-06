@@ -30,50 +30,48 @@ if "lat" not in st.session_state: st.session_state.lat = 12.823
 if "lon" not in st.session_state: st.session_state.lon = 80.044
 
 # --- FUNCTIONS ---
-
 def summarize_text(text):
-    # 1. We use a 'marker' to separate instructions from data
-    # This helps the model understand that the text after 'SUMMARY:' is the goal
-    prompt = f"Summarize these environmental news headlines into one paragraph without copying titles: {text} . SUMMARY:"
+    # 1. Cleaner Input: We strip all list artifacts before BART even sees them
+    # This prevents the '[\'Tamil Nadu...\']' mess in your screenshots
+    clean_input = re.sub(r"\[|\]|'|\"|\\", "", str(text))
+    
+    # 2. Simplified Prompt: BART likes direct, short instructions
+    prompt = f"Summarize this environmental news in one professional sentence: {clean_input}"
     
     inputs = tokenizer(prompt, return_tensors="pt", truncation=True, max_length=1024).to(device)
     
-    # 2. Stronger generation constraints
+    # 3. Aggressive Generation: 
+    # High repetition penalty (15.0) makes copying mathematically 'expensive' for the AI
     summary_ids = model.generate(
         inputs["input_ids"], 
-        max_new_tokens=100, 
-        min_length=30,
-        num_beams=8,               
-        do_sample=True, 
-        temperature=1.1,           
-        repetition_penalty=12.0,    # High penalty to stop word-for-word copying
-        no_repeat_ngram_size=3,     # Forbids repeating 3-word sequences
+        max_new_tokens=60, 
+        min_length=25,
+        num_beams=4,               
+        do_sample=False,           # Switching to False for more stable, professional results
+        repetition_penalty=15.0,    
+        no_repeat_ngram_size=2,
         early_stopping=True
     )
     
     decoded = str(tokenizer.decode(summary_ids, skip_special_tokens=True))
     
-    # 3. THE FIX: We split the output by our marker 'SUMMARY:' 
-    # This discards everything before the marker (the leaked instructions)
-    if "SUMMARY:" in decoded:
-        clean_summary = decoded.split("SUMMARY:")[-1].strip()
-    else:
-        clean_summary = decoded.strip()
-
-    # 4. Final cleaning of brackets and technical noise
-    # We use regex to remove anything that looks like [ 'Title', 'Source' ]
-    clean_summary = re.sub(r"\[|\]|'|\"|\\", "", clean_summary)
-    
-    # Remove common 'leaked' instruction phrases manually just in case
-    ban_phrases = [
-        "Summarize the following", "Do not list", "cohesive professional summary", 
-        "regional environmental developments", "Analysis of recent"
+    # 4. THE LEAK STOPPER: Manually scrub out the instructions if they appear
+    # This specifically targets the "Provide a cohesive..." text in your screenshots
+    trash_phrases = [
+        "Summarize this", "Provide a cohesive", "professional summary", 
+        "environmental developments", "news headlines", "regional environmental",
+        "Analysis of recent", "indicates that" # We remove these to avoid double-prefixes
     ]
-    for phrase in ban_phrases:
+    
+    clean_summary = decoded
+    for phrase in trash_phrases:
         clean_summary = re.sub(phrase, "", clean_summary, flags=re.IGNORECASE)
-
-    # 5. Professional Prefix
-    return f"Analysis of recent regional environmental reports indicates that {clean_summary.strip()}"
+    
+    # Final strip of any lingering punctuation/whitespace at the start
+    clean_summary = clean_summary.strip(" :.-")
+    
+    # 5. Professional Output
+    return f"Analysis of recent regional environmental reports indicates that {clean_summary}"
 
 def fetch_news(loc_name, target_date):
     start_date = target_date - timedelta(days=2) # Slightly wider window for better results
