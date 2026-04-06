@@ -23,7 +23,13 @@ def load_nlp_model():
     return tokenizer, model
 
 tokenizer, model = load_nlp_model()
-geolocator = Nominatim(user_agent="geosum_final_v1")
+
+# --- GEOLOCATOR SETUP ---
+# Updated with a unique user_agent and a timeout to prevent connection errors
+geolocator = Nominatim(
+    user_agent="geosum_environmental_summarizer_v2", 
+    timeout=10
+)
 
 # --- SESSION STATE ---
 if "lat" not in st.session_state: st.session_state.lat = 12.823
