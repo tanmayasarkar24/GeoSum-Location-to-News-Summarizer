@@ -32,40 +32,48 @@ if "lon" not in st.session_state: st.session_state.lon = 80.044
 # --- FUNCTIONS ---
 
 def summarize_text(text):
-    # 1. ENHANCED PROMPT: Explicitly asking for rephrasing, not listing.
-    instruction = "Summarize the following news headlines into a single, cohesive paragraph. Do not list them or copy them word-for-word:"
-    
-    # Pre-cleaning the input to remove any code-like artifacts before the AI sees it
-    clean_input = str(text).replace("[", "").replace("]", "").replace("'", "").replace("\\", "")
-    prompt = f"{instruction} {clean_input}"
+    # 1. We use a 'marker' to separate instructions from data
+    # This helps the model understand that the text after 'SUMMARY:' is the goal
+    prompt = f"Summarize these environmental news headlines into one paragraph without copying titles: {text} . SUMMARY:"
     
     inputs = tokenizer(prompt, return_tensors="pt", truncation=True, max_length=1024).to(device)
     
-    # 2. GENERATION PARAMETERS: Tuning for Abstractive (creative) summary
+    # 2. Stronger generation constraints
     summary_ids = model.generate(
         inputs["input_ids"], 
-        max_new_tokens=120, 
-        min_length=40,
-        num_beams=12,               # More beams for better sentence searching
+        max_new_tokens=100, 
+        min_length=30,
+        num_beams=8,               
         do_sample=True, 
-        temperature=1.2,           # Balanced creativity
-        repetition_penalty=15.0,    # EXTREME penalty to stop it from copying titles
-        no_repeat_ngram_size=3,     # Forbids repeating any 3-word sequence from the input
+        temperature=1.1,           
+        repetition_penalty=12.0,    # High penalty to stop word-for-word copying
+        no_repeat_ngram_size=3,     # Forbids repeating 3-word sequences
         early_stopping=True
     )
     
-    decoded_summary = str(tokenizer.decode(summary_ids, skip_special_tokens=True))
+    decoded = str(tokenizer.decode(summary_ids, skip_special_tokens=True))
     
-    # 3. POST-PROCESSING: Removing the instruction if it leaked
-    clean_summary = re.sub(re.escape(instruction), '', decoded_summary, flags=re.IGNORECASE).strip()
-    
-    # Extra cleanup for those backslashes seen in the UI
-    clean_summary = clean_summary.replace('\\', '').replace('"', '').replace("Summarized environmental news:", "").strip()
-    
-    if clean_summary.lower().startswith("analysis"):
-        return clean_summary
+    # 3. THE FIX: We split the output by our marker 'SUMMARY:' 
+    # This discards everything before the marker (the leaked instructions)
+    if "SUMMARY:" in decoded:
+        clean_summary = decoded.split("SUMMARY:")[-1].strip()
     else:
-        return f"Analysis of recent regional environmental reports indicates that {clean_summary}"
+        clean_summary = decoded.strip()
+
+    # 4. Final cleaning of brackets and technical noise
+    # We use regex to remove anything that looks like [ 'Title', 'Source' ]
+    clean_summary = re.sub(r"\[|\]|'|\"|\\", "", clean_summary)
+    
+    # Remove common 'leaked' instruction phrases manually just in case
+    ban_phrases = [
+        "Summarize the following", "Do not list", "cohesive professional summary", 
+        "regional environmental developments", "Analysis of recent"
+    ]
+    for phrase in ban_phrases:
+        clean_summary = re.sub(phrase, "", clean_summary, flags=re.IGNORECASE)
+
+    # 5. Professional Prefix
+    return f"Analysis of recent regional environmental reports indicates that {clean_summary.strip()}"
 
 def fetch_news(loc_name, target_date):
     start_date = target_date - timedelta(days=2) # Slightly wider window for better results
