@@ -31,40 +31,40 @@ if "lat" not in st.session_state: st.session_state.lat = 12.823
 if "lon" not in st.session_state: st.session_state.lon = 80.044
 
 # --- FUNCTIONS ---
+import re
+
 def summarize_text(text):
-    # 1. PERSONA INJECTION: We wrap the headlines in a command
-    # This forces BART to 'react' to the text rather than just copy it.
-    instruction_phrase = "Provide a cohesive, professional summary of these regional environmental developments:"
-    prompt = f"{instruction_phrase} {text}"
+    # 1. We define the instruction clearly
+    instruction = "Provide a cohesive, professional summary of these regional environmental developments:"
+    prompt = f"{instruction} {text}"
     
     inputs = tokenizer(prompt, return_tensors="pt", truncation=True, max_length=1024).to(device)
     
-    # 2. HYPER-PARAMETER TUNING
+    # 2. TUNING FOR MAXIMUM REPHRASING
     summary_ids = model.generate(
         inputs["input_ids"], 
-        max_new_tokens=100, 
-        min_length=30,
-        num_beams=8,               # Higher beams for better sentence structure
+        max_new_tokens=80, 
+        min_length=35,
+        num_beams=10,               # More beams for better sentence searching
         do_sample=True, 
-        temperature=1.5,           # High temperature for maximum rephrasing
-        top_k=50,
-        top_p=0.9,
-        repetition_penalty=5.0,    # MAXIMUM penalty to stop it from copying exact words
-        no_repeat_ngram_size=3,    # Forbids repeating any 3-word sequence
+        temperature=1.4,           # High temp forces "new" word choices
+        repetition_penalty=10.0,    # EXTREME penalty to stop it from copying exact words
+        no_repeat_ngram_size=3,    # Forbids repeating any 3-word sequence from the input
         early_stopping=True
     )
     
     decoded_summary = tokenizer.decode(summary_ids, skip_special_tokens=True)
     
-    # 3. CLEANING & POST-PROCESSING
-    # Force string conversion and remove slashes
-    clean_summary = str(decoded_summary).replace('\\', '').strip()
+    # 3. THE "GHOST" CLEANER (Removes the instruction from the output)
+    # This specifically looks for your prompt text and deletes it
+    clean_summary = re.sub(re.escape(instruction), '', decoded_summary, flags=re.IGNORECASE).strip()
     
-    # CRITICAL: Remove the instruction phrase if the AI repeated it in the output
-    clean_summary = clean_summary.replace(instruction_phrase, "").strip()
+    # 4. Remove any lingering slashes or brackets
+    clean_summary = clean_summary.replace('\\', '').replace('[', '').replace(']', '').strip()
     
-    # Final check: If it still looks too much like a list, we add a manual lead-in
-    if any(clean_summary.lower().startswith(word) for word in ["the", "this", "regional", "analysis"]):
+    # 5. Final Professional Polish
+    # If the AI started with "Analysis of...", we keep it. Otherwise, we add it.
+    if clean_summary.lower().startswith("analysis"):
         return clean_summary
     else:
         return f"Analysis of recent regional environmental reports indicates that {clean_summary}"
