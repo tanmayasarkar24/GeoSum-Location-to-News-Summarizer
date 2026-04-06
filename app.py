@@ -8,6 +8,8 @@ from bs4 import BeautifulSoup
 import torch
 from transformers import AutoTokenizer, AutoModelForSeq2SeqLM
 from datetime import datetime, timedelta
+import re
+from gnews import GNews
 
 # --- CONFIG ---
 st.set_page_config(page_title="GeoSum", layout="wide")
@@ -31,45 +33,44 @@ if "lat" not in st.session_state: st.session_state.lat = 12.823
 if "lon" not in st.session_state: st.session_state.lon = 80.044
 
 # --- FUNCTIONS ---
-import re
 
 def summarize_text(text):
     # 1. We define the instruction clearly
     instruction = "Provide a cohesive, professional summary of these regional environmental developments:"
-    prompt = f"{instruction} {text}"
+    
+    # Ensure input is a clean string (removes potential list brackets from headlines)
+    clean_input = str(text).replace("[", "").replace("]", "").replace("'", "")
+    prompt = f"{instruction} {clean_input}"
     
     inputs = tokenizer(prompt, return_tensors="pt", truncation=True, max_length=1024).to(device)
     
-    # 2. TUNING FOR MAXIMUM REPHRASING
+    # 2. TUNING FOR MAXIMUM REPHRASING (Abstractive Summarization)
     summary_ids = model.generate(
         inputs["input_ids"], 
-        max_new_tokens=80, 
+        max_new_tokens=100, 
         min_length=35,
-        num_beams=10,               # More beams for better sentence searching
+        num_beams=10,               
         do_sample=True, 
-        temperature=1.4,           # High temp forces "new" word choices
-        repetition_penalty=10.0,    # EXTREME penalty to stop it from copying exact words
-        no_repeat_ngram_size=3,    # Forbids repeating any 3-word sequence from the input
+        temperature=1.3,           
+        repetition_penalty=10.0,    # Prevents model from copying headlines exactly
+        no_repeat_ngram_size=3,    # Ensures new sentence structures
         early_stopping=True
     )
     
-    decoded_summary = tokenizer.decode(summary_ids, skip_special_tokens=True)
+    # Force string conversion to prevent TypeErrors
+    decoded_summary = str(tokenizer.decode(summary_ids, skip_special_tokens=True))
     
-    # 3. THE "GHOST" CLEANER (Removes the instruction from the output)
-    # This specifically looks for your prompt text and deletes it
+    # 3. THE GHOST CLEANER: Removes the instruction from the final output
     clean_summary = re.sub(re.escape(instruction), '', decoded_summary, flags=re.IGNORECASE).strip()
     
-    # 4. Remove any lingering slashes or brackets
-    clean_summary = clean_summary.replace('\\', '').replace('[', '').replace(']', '').strip()
+    # 4. Remove any lingering slashes or artifacts
+    clean_summary = clean_summary.replace('\\', '').replace('"', '').strip()
     
     # 5. Final Professional Polish
-    # If the AI started with "Analysis of...", we keep it. Otherwise, we add it.
     if clean_summary.lower().startswith("analysis"):
         return clean_summary
     else:
         return f"Analysis of recent regional environmental reports indicates that {clean_summary}"
-
-from gnews import GNews
 
 def fetch_news(loc_name, target_date):
     # Initialize GNews with specific settings
@@ -79,13 +80,16 @@ def fetch_news(loc_name, target_date):
     query = f"{loc_name} environmental climate news"
     
     try:
-        # GNews handles the heavy lifting of fetching and parsing
         results = google_news.get_news(query)
         articles = []
         
         for item in results:
+            # FIX: Get the first part of the title as a STRING, not a list
+            full_title = item.get('title', 'News')
+            display_title = full_title.rsplit(" - ", 1) if " - " in full_title else full_title
+            
             articles.append({
-                'title': item['title'].rsplit(" - ", 1),
+                'title': display_title,
                 'source': item['publisher']['title'],
                 'link': item['url']
             })
@@ -120,20 +124,18 @@ with col_loc:
             news = fetch_news(loc_name, selected_date)
 
             if news:
-                # Joining with proper sentence structure for the AI
-                headlines = " ".join([f"{n['title']}." for n in news])
+                # Create a clean string of headlines for the AI
+                headlines_text = " ".join([f"{n['title']}." for n in news])
 
-                summary = summarize_text(headlines)
+                summary = summarize_text(headlines_text)
 
-                # --- NEW CLEANUP LOGIC ---
-                # This removes those slashes (\) and ensures it stays a clean string
-                final_summary = str(summary).replace('\\', '').replace("[", "").replace("]", "").replace("'", "").replace('"', "")
+                # Final UI cleanup
+                final_summary = str(summary).replace("[", "").replace("]", "").replace("'", "").replace('"', "")
 
                 st.success(f"Report for: {loc_name} ({selected_date})")
                 
-                # --- NEW LOGIC FOR SINGLE NEWS OR REPETITION ---
                 if len(news) == 1:
-                    st.info(f"**AI Insight:** Recent reports from the region indicate: {final_summary} For more detailed context, please refer to the source link below.")
+                    st.info(f"**AI Insight:** {final_summary}")
                 else:
                     st.info(f"**AI Insight:** {final_summary}")
                 
@@ -143,6 +145,7 @@ with col_loc:
                     st.markdown(f"- [{n['title']}]({n['link']}) *({n['source']})*")
             else:
                 st.warning(f"No news found for this area on {selected_date}.")
+
 with col_map:
     st.write("### Choose Your Location")
     m = folium.Map(location=[st.session_state.lat, st.session_state.lon], zoom_start=6)
